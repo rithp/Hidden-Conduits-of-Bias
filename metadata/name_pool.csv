@@ -1,1 +1,11 @@
-name,gender,notes
+name,gender,gender_acc_min,neutrality_score,reason_selected
+Rahul,M,1.0,0.6,"auto: passed gender bar, top neutrality score"
+Varun,M,1.0,0.6,"auto: passed gender bar, top neutrality score"
+Rohit,M,1.0,0.55,"auto: passed gender bar, top neutrality score"
+Amit,M,1.0,0.55,"auto: passed gender bar, top neutrality score"
+Nikhil,M,1.0,0.55,"auto: passed gender bar, top neutrality score"
+Neha,F,1.0,0.9,"auto: passed gender bar, top neutrality score"
+Pooja,F,1.0,0.9,"auto: passed gender bar, top neutrality score"
+Swati,F,1.0,0.8,"auto: passed gender bar, top neutrality score"
+Riya,F,1.0,0.8,"auto: passed gender bar, top neutrality score"
+Divya,F,1.0,0.75,"auto: passed gender bar, top neutrality score"
