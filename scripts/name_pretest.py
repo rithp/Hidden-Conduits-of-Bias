@@ -35,9 +35,10 @@ TOP_P = 1.0
 MAX_NEW_TOKENS = 150
 SEED = 42
 
-PROMPT_PATH = Path("prompts/02_name_pretest.md")
-CANDIDATES_PATH = Path("metadata/name_candidates.csv")
-OUT_PATH = Path("metadata/name_pretest_model.csv")
+ROOT = Path(__file__).resolve().parent.parent
+PROMPT_PATH = ROOT / "prompts" / "02_name_pretest.md"
+CANDIDATES_PATH = ROOT / "metadata" / "name_candidates.csv"
+OUT_PATH = ROOT / "metadata" / "name_pretest_model.csv"
 
 FIELDS = [
     "model", "model_id", "name", "intended_gender", "type", "run",
@@ -64,19 +65,23 @@ def load_model(model_id):
 def ask(tok, model, prompt_text, run):
     torch.manual_seed(SEED + run)
     messages = [{"role": "user", "content": prompt_text}]
-    input_ids = tok.apply_chat_template(
-        messages, add_generation_prompt=True, return_tensors="pt"
+    inputs = tok.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        return_dict=True,
     ).to(model.device)
+    input_len = inputs["input_ids"].shape[-1]
     with torch.no_grad():
         out = model.generate(
-            input_ids,
+            **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=True,
             temperature=TEMPERATURE,
             top_p=TOP_P,
             pad_token_id=tok.eos_token_id,
         )
-    return tok.decode(out[0][input_ids.shape[-1]:], skip_special_tokens=True).strip()
+    return tok.decode(out[0][input_len:], skip_special_tokens=True).strip()
 
 
 def parse(text):

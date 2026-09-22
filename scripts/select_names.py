@@ -16,9 +16,10 @@ import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 
-IN_PATH = Path("metadata/name_pretest_model.csv")
-SUMMARY_PATH = Path("metadata/name_pretest_summary.csv")
-POOL_PATH = Path("metadata/name_pool.csv")
+ROOT = Path(__file__).resolve().parent.parent
+IN_PATH = ROOT / "metadata" / "name_pretest_model.csv"
+SUMMARY_PATH = ROOT / "metadata" / "name_pretest_summary.csv"
+POOL_PATH = ROOT / "metadata" / "name_pool.csv"
 
 POOL_SIZE = 5                  # per gender
 MIN_GENDER_ACCURACY = 0.9      # must hold for EACH model separately
