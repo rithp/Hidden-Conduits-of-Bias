@@ -1,0 +1,27 @@
+name,intended_gender,type,anchor_purpose
+Rahul,M,candidate,
+Rohit,M,candidate,
+Amit,M,candidate,
+Aman,M,candidate,
+Nikhil,M,candidate,
+Ankit,M,candidate,
+Vivek,M,candidate,
+Karan,M,candidate,
+Varun,M,candidate,
+Sachin,M,candidate,
+Priya,F,candidate,
+Neha,F,candidate,
+Pooja,F,candidate,
+Anjali,F,candidate,
+Divya,F,candidate,
+Sneha,F,candidate,
+Nisha,F,candidate,
+Shreya,F,candidate,
+Swati,F,candidate,
+Riya,F,candidate,
+Venkatesh,M,anchor,should read as south
+Debashish,M,anchor,should read as east
+Aarav,M,anchor,should read as urban / high income
+Lakshmi,F,anchor,should read as south
+Sudeshna,F,anchor,should read as east
+Kiara,F,anchor,should read as urban / high income
