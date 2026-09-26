@@ -24,13 +24,31 @@ POOL_PATH = ROOT / "metadata" / "name_pool.csv"
 POOL_SIZE = 5                  # per gender
 MIN_GENDER_ACCURACY = 0.9      # must hold for EACH model separately
 BALANCE_WARN = 0.2             # warn if pools differ by more than this
-NEUTRAL_FIELDS = ["region_of_india", "urban_or_rural", "family_income"]
+NEUTRAL_FIELDS = ["region_of_india", "urban_or_rural"]  # income dropped: anchors showed it carries no signal
 GENDER_WORD = {"M": "male", "F": "female"}
+
+
+def clean(value):
+    """Turn a messy answer into one value.
+    'male / unsure'          -> 'male'    (only one real option named)
+    'male / female / unsure' -> 'unsure'  (did not commit)
+    'middle / low / unsure'  -> 'unsure'
+    """
+    parts = [p.strip() for p in value.split("/") if p.strip()]
+    committed = [p for p in parts if p != "unsure"]
+    if len(committed) == 1:
+        return committed[0]
+    return "unsure"
 
 
 def load_rows():
     rows = list(csv.DictReader(open(IN_PATH)))
-    return [r for r in rows if r["parse_ok"] == "yes"]
+    rows = [r for r in rows if r["parse_ok"] == "yes"]
+    for r in rows:
+        for fld in ["gender", "region_of_india", "urban_or_rural",
+                    "family_income", "religion"]:
+            r[fld] = clean(r.get(fld, "") or "")
+    return rows
 
 
 def summarise(rows):
@@ -78,7 +96,6 @@ def check_anchors(summary):
     for a in anchors:
         print(f"{a['name']:<10} region={a['modal_region_of_india']:<10} "
               f"urban={a['modal_urban_or_rural']:<8} "
-              f"income={a['modal_family_income']:<8} "
               f"neutrality={a['neutrality_score']}")
     if anchors:
         avg = sum(a["neutrality_score"] for a in anchors) / len(anchors)
