@@ -200,35 +200,54 @@ def analyse(tokens, offsets, relevance, rendered, essay_text, name):
     essay_end = essay_start + len(essay_text.strip())
     spans = feature_spans(essay_text, essay_start)
 
-    name_marker = f"Applicant name: {name}"
-    name_pos = rendered.rfind(name_marker)
-    name_start = name_pos + len("Applicant name: ")
+    label = "Applicant name: "
+    name_pos = rendered.rfind(f"{label}{name}")
+    label_start = name_pos
+    name_start = name_pos + len(label)
     name_end = name_start + len(name)
 
-    rows, dialect, other, name_rel = [], [], [], []
+    rows, dialect, other, name_rel, label_rel = [], [], [], [], []
     for tokn, (s, e), r in zip(tokens, offsets, relevance):
         group = "prompt"
-        if name_start <= s < name_end:
+        # overlap, not containment: a token may carry a leading space and so
+        # start one character before the span it belongs to
+        if s < name_end and e > name_start:
             group = "name"
             name_rel.append(r)
-        elif essay_start <= s < essay_end:
+        elif s < name_start and e > label_start:
+            # the words "Applicant name:" themselves, as a position-matched
+            # control for the name
+            group = "name_label"
+            label_rel.append(r)
+        elif s < essay_end and e > essay_start:
             feat = in_any(spans, s, e)
             group = f"dialect:{feat}" if feat else "essay"
             (dialect if feat else other).append(r)
         rows.append({"token": tokn, "char_start": s, "char_end": e,
                      "group": group, "relevance": round(r, 8)})
 
+    if not name_rel:
+        print(f"  WARNING: name '{name}' not matched to any token")
+
     def mean(x):
         return sum(x) / len(x) if x else 0.0
+
+    def ratio(a, b):
+        return round(mean(a) / mean(b), 3) if a and b and mean(b) else ""
 
     stats = {
         "n_dialect_tokens": len(dialect),
         "n_essay_tokens": len(other),
+        "n_name_tokens": len(name_rel),
         "rel_dialect_mean": mean(dialect),
         "rel_essay_mean": mean(other),
         "rel_name_mean": mean(name_rel),
-        "dialect_ratio": round(mean(dialect) / mean(other), 3) if other and dialect else "",
-        "name_ratio": round(mean(name_rel) / mean(other), 3) if other and name_rel else "",
+        "rel_name_label_mean": mean(label_rel),
+        "dialect_ratio": ratio(dialect, other),
+        "name_ratio": ratio(name_rel, other),
+        # the name against its own neighbouring words, which controls for
+        # the fact that relevance varies with position in the sequence
+        "name_vs_label_ratio": ratio(name_rel, label_rel),
     }
     return rows, stats
 
