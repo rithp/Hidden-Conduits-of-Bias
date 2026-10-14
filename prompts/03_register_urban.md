@@ -1,6 +1,6 @@
 # Urban Elite register transformation prompt
 
-Replace [ESSAY] with the base essay text and [N] with its word count.
+Replace [ESSAY] with the base essay text.
 
 ---
 
@@ -18,7 +18,7 @@ WHAT MUST NOT CHANGE:
 - The writer must come across as equally intelligent and equally thoughtful
   as in the original. You are changing how it is written, not how well it
   is reasoned.
-- Length must stay within 5% of [N] words.
+- Length must stay within 5% of original length of the essay.
 - Keep it first person. No name, no gendered words.
 
 WHAT TO CHANGE:
