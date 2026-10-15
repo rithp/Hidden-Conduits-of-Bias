@@ -42,7 +42,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from common import (ANSWER_PREFIX, MODELS, ROOT, SCORES_PATH, build_prompt,
                     load_names)
-from check_variants import FEATURE_PATTERNS
+
+LOGIT_PATH = ROOT / "results" / "scores_logit.csv"
+from check_variants import FEATURE_PATTERNS, article_density, deletion_spans
 
 VAR_DIR = ROOT / "data" / "variants"
 OUT_DIR = ROOT / "results" / "attention"
@@ -74,43 +76,92 @@ def load_model(model_id):
 # picking which essays to look at
 # ---------------------------------------------------------------------------
 
-def pick_items(model_key, condition, top_n):
-    """Essays whose tier2 version scored lowest relative to its urban version."""
-    rows = [r for r in csv.DictReader(open(SCORES_PATH))
-            if r["model"] == model_key and r["condition"] == condition
-            and r["parse_ok"] == "yes"]
-    if not rows:
-        raise SystemExit(f"No scored rows for model={model_key} "
-                         f"condition={condition}. Run score_essays.py first.")
+def _load_scores(model_key, condition):
+    """Prefer the logit scores: they cover both models and all four
+    conditions, and argmax_score is exactly the token the model would emit,
+    which is the token this analysis differentiates."""
+    if LOGIT_PATH.exists():
+        rows = [r for r in csv.DictReader(open(LOGIT_PATH))
+                if r["model"] == model_key and r["condition"] == condition
+                and r["expected_score"] not in ("", None)]
+        if rows:
+            return [{"essay_id": r["essay_id"], "register": r["register"],
+                     "gender": r["gender"],
+                     "score": float(r["expected_score"]),
+                     "target": int(r["argmax_score"])} for r in rows], "logit"
+    if SCORES_PATH.exists():
+        rows = [r for r in csv.DictReader(open(SCORES_PATH))
+                if r["model"] == model_key and r["condition"] == condition
+                and r["parse_ok"] == "yes"]
+        if rows:
+            return [{"essay_id": r["essay_id"], "register": r["register"],
+                     "gender": r["gender"], "score": float(r["score"]),
+                     "target": int(r["score"])} for r in rows], "sampled"
+    raise SystemExit(
+        f"No scores for model={model_key} condition={condition}. "
+        f"Run score_logits.py --model {model_key} first."
+    )
+
+
+def pick_items(model_key, condition, top_n, select="register"):
+    """Which essays to analyse.
+
+    select='register': largest urban-minus-tier2 gap. Use where the register
+        penalty is the effect of interest (LLaMA).
+    select='gender': largest female-minus-male gap. Use where the gender
+        effect is the effect of interest (Qwen), since its register gap is
+        near zero and ranking by it would be arbitrary.
+    """
+    rows, source = _load_scores(model_key, condition)
+    print(f"[scores from {source}]")
 
     bucket = defaultdict(list)
     for r in rows:
-        bucket[(r["essay_id"], r["gender"], r["register"])].append(int(r["score"]))
+        bucket[(r["essay_id"], r["gender"], r["register"])].append(r["score"])
+
+    def avg(key):
+        v = bucket.get(key, [])
+        return sum(v) / len(v) if v else None
 
     gaps = []
-    for (eid, g, reg), _ in list(bucket.items()):
-        if reg != "urban":
-            continue
-        urban = bucket.get((eid, g, "urban"), [])
-        tier2 = bucket.get((eid, g, "tier2"), [])
-        if not urban or not tier2:
-            continue
-        gap = sum(urban) / len(urban) - sum(tier2) / len(tier2)
-        gaps.append((gap, eid, g))
+    seen = set()
+    for (eid, g, reg) in bucket:
+        if select == "register":
+            if reg != "urban" or (eid, g) in seen:
+                continue
+            seen.add((eid, g))
+            u, t = avg((eid, g, "urban")), avg((eid, g, "tier2"))
+            if u is None or t is None:
+                continue
+            gaps.append((u - t, eid, g))
+        else:
+            if g != "F" or (eid, reg) in seen:
+                continue
+            seen.add((eid, reg))
+            f, m = avg((eid, "F", reg)), avg((eid, "M", reg))
+            if f is None or m is None:
+                continue
+            gaps.append((f - m, eid, "F"))
 
     gaps.sort(reverse=True)
-    print(f"Top gaps (urban minus tier2), condition {condition}:")
+    lab = "urban - tier2" if select == "register" else "female - male"
+    print(f"Top gaps ({lab}), condition {condition}:")
     for gap, eid, g in gaps[:top_n]:
-        print(f"  {gap:+.2f}  {eid}  {g}")
+        print(f"  {gap:+.4f}  {eid}  {g}")
     return gaps[:top_n]
 
 
-def mean_score(model_key, condition, eid, reg, gender):
-    scores = [int(r["score"]) for r in csv.DictReader(open(SCORES_PATH))
-              if r["model"] == model_key and r["condition"] == condition
-              and r["essay_id"] == eid and r["register"] == reg
-              and r["gender"] == gender and r["parse_ok"] == "yes"]
-    return round(sum(scores) / len(scores), 2) if scores else None
+def item_score(model_key, condition, eid, reg, gender):
+    """Returns (score_for_reporting, target_digit_to_differentiate)."""
+    rows, _ = _load_scores(model_key, condition)
+    hits = [r for r in rows if r["essay_id"] == eid and r["register"] == reg
+            and r["gender"] == gender]
+    if not hits:
+        return None, None
+    score = sum(h["score"] for h in hits) / len(hits)
+    targets = [h["target"] for h in hits]
+    target = max(set(targets), key=targets.count)
+    return round(score, 4), target
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +246,26 @@ def in_any(span_list, start, end):
     return None
 
 
-def analyse(tokens, offsets, relevance, rendered, essay_text, name):
-    essay_start = rendered.rfind(essay_text.strip()[:80])
-    essay_end = essay_start + len(essay_text.strip())
-    spans = feature_spans(essay_text, essay_start)
+def analyse(tokens, offsets, relevance, rendered, essay_text, name,
+            counterpart_text=None):
+    # build_prompt() inserts essay_text.strip(), so the regex must run on the
+    # SAME string the offsets refer to, or every span is shifted by the
+    # length of the stripped-off whitespace
+    essay = essay_text.strip()
+    essay_start = rendered.rfind(essay[:80])
+    essay_end = essay_start + len(essay)
+    assert essay_start >= 0, "essay text not found in rendered prompt"
+    assert rendered[essay_start:essay_end] == essay, \
+        "essay region misaligned: check for duplicate text in the prompt"
+
+    spans = feature_spans(essay, essay_start)
+    n_regex = len(spans)
+    # recover omitted articles by aligning against the matched urban twin
+    n_deletion = 0
+    if counterpart_text:
+        dels = deletion_spans(essay, counterpart_text.strip(), essay_start)
+        spans += dels
+        n_deletion = len(dels)
 
     label = "Applicant name: "
     name_pos = rendered.rfind(f"{label}{name}")
@@ -236,6 +303,8 @@ def analyse(tokens, offsets, relevance, rendered, essay_text, name):
         return round(mean(a) / mean(b), 3) if a and b and mean(b) else ""
 
     stats = {
+        "n_feature_spans_regex": n_regex,
+        "n_feature_spans_deletion": n_deletion,
         "n_dialect_tokens": len(dialect),
         "n_essay_tokens": len(other),
         "n_name_tokens": len(name_rel),
@@ -290,9 +359,12 @@ def main():
     ap.add_argument("--top", type=int, default=5,
                     help="how many essays to analyse (both registers each)")
     ap.add_argument("--condition", default=CONDITION)
+    ap.add_argument("--select", choices=["register", "gender"],
+                    default="register",
+                    help="rank essays by the register gap or the gender gap")
     args = ap.parse_args()
 
-    picks = pick_items(args.model, args.condition, args.top)
+    picks = pick_items(args.model, args.condition, args.top, args.select)
     names = load_names()
     model_id = MODELS[args.model]
 
@@ -303,18 +375,26 @@ def main():
     summary, head_rows = [], []
 
     for gap, eid, gender in picks:
+        urban_text = (VAR_DIR / f"{eid}__urban.txt").read_text()
+        tier2_text = (VAR_DIR / f"{eid}__tier2.txt").read_text()
+
         for reg in ["urban", "tier2"]:
-            text = (VAR_DIR / f"{eid}__{reg}.txt").read_text()
+            text = urban_text if reg == "urban" else tier2_text
+            # the twin, used to locate omitted articles in the tier2 variant
+            twin = urban_text if reg == "tier2" else None
             name = names[eid][gender]
-            score = mean_score(args.model, args.condition, eid, reg, gender)
+            score, target = item_score(args.model, args.condition,
+                                       eid, reg, gender)
             if score is None:
                 continue
 
             prompt = build_prompt(args.condition, name, text)
             tokens, offsets, rel, heads, rendered = rollout_relevance(
-                tok, model, prompt, str(int(round(score)))
+                tok, model, prompt, str(target)
             )
-            rows, stats = analyse(tokens, offsets, rel, rendered, text, name)
+            rows, stats = analyse(tokens, offsets, rel, rendered, text, name,
+                                  counterpart_text=twin)
+            stats["article_density"] = article_density(text)
 
             stem = f"{args.model}_{args.condition}_{eid}_{reg}_{gender}"
             with open(OUT_DIR / f"{stem}_tokens.csv", "w", newline="") as f:
@@ -335,13 +415,17 @@ def main():
 
             summary.append({
                 "model": args.model, "condition": args.condition,
+                "select": args.select,
                 "essay_id": eid, "register": reg, "gender": gender,
-                "name": name, "mean_score": score,
-                "urban_minus_tier2": round(gap, 2), **stats,
+                "name": name, "mean_score": score, "target_digit": target,
+                "selection_gap": round(gap, 5), **stats,
             })
             print(f"{eid:<24} {reg:<6} {gender} score={score} "
-                  f"dialect_ratio={stats['dialect_ratio']} "
-                  f"name_ratio={stats['name_ratio']}")
+                  f"feats={stats['n_feature_spans_regex']}+"
+                  f"{stats['n_feature_spans_deletion']} "
+                  f"({stats['n_dialect_tokens']} tok) "
+                  f"d_ratio={stats['dialect_ratio']} "
+                  f"n_vs_label={stats['name_vs_label_ratio']}")
 
     if summary:
         with open(SUMMARY_PATH, "a", newline="") as f:

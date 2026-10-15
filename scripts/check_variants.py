@@ -87,6 +87,56 @@ def article_density(text):
     return round(100 * n / len(w), 1)
 
 
+# ---------------------------------------------------------------------------
+# Deletion-type features cannot be matched by regex: an omitted article leaves
+# no text to match. But every tier2 essay has a content-identical urban twin,
+# so the twin serves as ground truth. Aligning the two word sequences locates
+# every position where an article was dropped.
+# ---------------------------------------------------------------------------
+
+ARTICLES = {"the", "a", "an"}
+_PUNCT = '.,;:!?"\'()[]'
+
+
+def _word_positions(text):
+    """[(normalised_word, char_start, char_end), ...]"""
+    out = []
+    for m in re.finditer(r"\S+", text):
+        out.append((m.group().lower().strip(_PUNCT), m.start(), m.end()))
+    return out
+
+
+def deletion_spans(tier2_text, urban_text, base_offset, label="article_omission"):
+    """Character spans in tier2_text (shifted by base_offset) marking the word
+    that now occupies the position where an article stood in the urban twin.
+
+    Uses difflib on word sequences. For each delete/replace opcode, counts how
+    many articles the urban side had that the tier2 side does not, and tags the
+    tier2 word at the junction. That token is where the model would have to
+    notice the omission, so it is the right unit to attribute relevance to.
+    """
+    import difflib
+
+    t = _word_positions(tier2_text)
+    u = _word_positions(urban_text)
+    t_seq = [w[0] for w in t]
+    u_seq = [w[0] for w in u]
+
+    sm = difflib.SequenceMatcher(a=u_seq, b=t_seq, autojunk=False)
+    spans = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag not in ("delete", "replace"):
+            continue
+        removed = sum(u_seq[k] in ARTICLES for k in range(i1, i2))
+        kept = sum(t_seq[k] in ARTICLES for k in range(j1, j2))
+        if removed - kept <= 0:
+            continue
+        idx = min(j1, len(t) - 1)
+        if idx >= 0:
+            spans.append((base_offset + t[idx][1], base_offset + t[idx][2], label))
+    return spans
+
+
 def main():
     essays = [r["essay_id"] for r in csv.DictReader(open(TOPICS_PATH))]
     rows = []
