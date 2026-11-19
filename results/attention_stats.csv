@@ -1,0 +1,15 @@
+model,condition,test,n,geometric_mean_ratio,median_ratio,pct_above_1,wilcoxon_p,sign_test_p,note
+llama,A,dialect vs essay tokens (tier2),10,0.0006,0.0006,0.0,0.001953,0.001953,
+llama,A,name vs adjacent label (position-matched),0,,,,,,too few items to test
+llama,A,name vs essay tokens (uncontrolled),48,0.0626,1.0,45.8,0.011907,0.665466,shown only for contrast with the controlled test above
+llama,D,dialect vs essay tokens (tier2),0,,,,,,too few items to test
+llama,D,name vs adjacent label (position-matched),0,,,,,,too few items to test
+llama,D,name vs essay tokens (uncontrolled),26,1.974,2.0,84.6,1.6e-05,0.000534,shown only for contrast with the controlled test above
+llama,A vs D,"dialect ratio, A against D",24,1.0,,0.0,1.0,0.0,ratio of A to D; above 1 means A attends more
+qwen,A,dialect vs essay tokens (tier2),0,,,,,,too few items to test
+qwen,A,name vs adjacent label (position-matched),0,,,,,,too few items to test
+qwen,A,name vs essay tokens (uncontrolled),36,2.2894,2.0,100.0,0.0,0.0,shown only for contrast with the controlled test above
+qwen,B,dialect vs essay tokens (tier2),0,,,,,,too few items to test
+qwen,B,name vs adjacent label (position-matched),0,,,,,,too few items to test
+qwen,B,name vs essay tokens (uncontrolled),30,2.3522,2.0,100.0,1e-06,0.0,shown only for contrast with the controlled test above
+qwen,A vs D,"dialect ratio, A against D",0,,,,,,too few paired items to test

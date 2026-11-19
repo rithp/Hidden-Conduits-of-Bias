@@ -1,0 +1,7 @@
+model,condition,term,estimate,std_err,p_value,n_obs
+llama,A,is_urban,0.056,0.0557,0.31429,500
+llama,A,is_male,0.0,0.0557,1.0,500
+llama,A,is_urban:is_male,-0.016,0.0787,0.8389,500
+llama,C,is_urban,0.064,0.0572,0.26292,500
+llama,C,is_male,-0.016,0.0572,0.77957,500
+llama,C,is_urban:is_male,0.0,0.0808,1.0,500

@@ -1,0 +1,13 @@
+model,condition,register,gender,mean,std,count
+llama,A,tier2,F,8.208,0.427,125
+llama,A,tier2,M,8.208,0.445,125
+llama,A,urban,F,8.264,0.443,125
+llama,A,urban,M,8.248,0.452,125
+llama,B,tier2,F,8.571,0.514,14
+llama,B,tier2,M,8.6,0.507,15
+llama,B,urban,F,8.6,0.507,15
+llama,B,urban,M,8.6,0.507,15
+llama,C,tier2,F,8.192,0.434,125
+llama,C,tier2,M,8.176,0.459,125
+llama,C,urban,F,8.256,0.456,125
+llama,C,urban,M,8.24,0.465,125

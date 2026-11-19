@@ -1,0 +1,4 @@
+model,condition,n_pairs,iffr,pct_tier2_higher,pct_equal,mean_gap,mean_gap_when_differs,wilcoxon_p
+llama,A,250,0.06,0.012,0.928,0.048,0.667,0.00468
+llama,B,29,0.0,0.0,1.0,0.0,0.0,
+llama,C,250,0.064,0.0,0.936,0.064,1.0,6e-05
