@@ -49,10 +49,23 @@ from check_variants import FEATURE_PATTERNS, article_density, deletion_spans
 VAR_DIR = ROOT / "data" / "variants"
 OUT_DIR = ROOT / "results" / "attention"
 SUMMARY_PATH = ROOT / "results" / "attention_summary.csv"
+HEADS_PATH = ROOT / "results" / "attention_heads.csv"
 CONDITION = "A"          # the constrained condition: the instruction says
                          # dialect must not matter, so this is where a
                          # dialect-attending head is a genuine failure
 BASELINE_CONDITION = "B"  # run with --condition B to compare
+
+
+def already_done():
+    """Items whose summary row is already on file, so a restart continues
+    instead of recomputing."""
+    if not SUMMARY_PATH.exists():
+        return set()
+    out = set()
+    for r in csv.DictReader(open(SUMMARY_PATH)):
+        out.add((r["model"], r["condition"], r["essay_id"], r["register"],
+                 r["gender"]))
+    return out
 
 
 def load_model(model_id):
@@ -367,12 +380,24 @@ def main():
     picks = pick_items(args.model, args.condition, args.top, args.select)
     names = load_names()
     model_id = MODELS[args.model]
+    done = already_done()
 
-    print(f"\nLoading {model_id} with eager attention ...")
+    todo = sum(1 for _, eid, g in picks for reg in ("urban", "tier2")
+               if (args.model, args.condition, eid, reg, g) not in done)
+    print(f"\n{todo} items to run ({len(done)} already on file)")
+    if todo == 0:
+        print("Nothing to do.")
+        return
+
+    print(f"Loading {model_id} with eager attention ...")
     tok, model = load_model(model_id)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    summary, head_rows = [], []
+    SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    sum_f = open(SUMMARY_PATH, "a", newline="")
+    head_f = open(HEADS_PATH, "a", newline="")
+    sum_w = head_w = None
+    n_done = 0
 
     for gap, eid, gender in picks:
         urban_text = (VAR_DIR / f"{eid}__urban.txt").read_text()
@@ -382,6 +407,8 @@ def main():
             text = urban_text if reg == "urban" else tier2_text
             # the twin, used to locate omitted articles in the tier2 variant
             twin = urban_text if reg == "tier2" else None
+            if (args.model, args.condition, eid, reg, gender) in done:
+                continue
             name = names[eid][gender]
             score, target = item_score(args.model, args.condition,
                                        eid, reg, gender)
@@ -404,41 +431,51 @@ def main():
             write_heatmap(OUT_DIR / f"{stem}.html", rows, rendered,
                           f"{eid} / {reg} / {name} / score {score}")
 
-            for layer, vec in enumerate(heads):
-                for head, v in enumerate(vec.tolist()):
-                    head_rows.append({
-                        "model": args.model, "condition": args.condition,
-                        "essay_id": eid, "register": reg, "gender": gender,
-                        "layer": layer, "head": head,
-                        "contribution": round(v, 8),
-                    })
+            head_rows = [{
+                "model": args.model, "condition": args.condition,
+                "essay_id": eid, "register": reg, "gender": gender,
+                "layer": layer, "head": head, "contribution": round(v, 8),
+            } for layer, vec in enumerate(heads)
+              for head, v in enumerate(vec.tolist())]
 
-            summary.append({
+            srow = {
                 "model": args.model, "condition": args.condition,
                 "select": args.select,
                 "essay_id": eid, "register": reg, "gender": gender,
                 "name": name, "mean_score": score, "target_digit": target,
                 "selection_gap": round(gap, 5), **stats,
-            })
-            print(f"{eid:<24} {reg:<6} {gender} score={score} "
+            }
+
+            # write now, not at the end: a disconnect must not cost the
+            # whole run, and the file should be inspectable while it runs
+            if sum_w is None:
+                sum_w = csv.DictWriter(sum_f, fieldnames=list(srow.keys()))
+                if sum_f.tell() == 0:
+                    sum_w.writeheader()
+            sum_w.writerow(srow)
+            sum_f.flush()
+
+            if head_rows:
+                if head_w is None:
+                    head_w = csv.DictWriter(
+                        head_f, fieldnames=list(head_rows[0].keys()))
+                    if head_f.tell() == 0:
+                        head_w.writeheader()
+                head_w.writerows(head_rows)
+                head_f.flush()
+            n_done += 1
+
+            print(f"[{n_done}/{todo}] {eid:<24} {reg:<6} {gender} score={score} "
                   f"feats={stats['n_feature_spans_regex']}+"
                   f"{stats['n_feature_spans_deletion']} "
                   f"({stats['n_dialect_tokens']} tok) "
                   f"d_ratio={stats['dialect_ratio']} "
                   f"n_vs_label={stats['name_vs_label_ratio']}")
 
-    if summary:
-        with open(SUMMARY_PATH, "a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(summary[0].keys()))
-            if f.tell() == 0:
-                w.writeheader()
-            w.writerows(summary)
-        with open(ROOT / "results" / "attention_heads.csv", "a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(head_rows[0].keys()))
-            if f.tell() == 0:
-                w.writeheader()
-            w.writerows(head_rows)
-        print(f"\nWrote {SUMMARY_PATH} and per-token files in {OUT_DIR}")
+    sum_f.close()
+    head_f.close()
+    print(f"\n{n_done} items written to {SUMMARY_PATH}")
+    print(f"Per-token files and heatmaps in {OUT_DIR}")
 
 
 if __name__ == "__main__":
